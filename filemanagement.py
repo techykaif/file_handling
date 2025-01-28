@@ -3,8 +3,10 @@ import shutil
 from datetime import datetime
 import hashlib
 
-directory = "/Users/kaif/Desktop/Automation/File_Handling"
+# Define the directory to organize
+directory = os.getcwd()  # Use the current working directory
 
+# Define file types and their extensions
 file_types = {
     'Documents': ['.pdf', '.docx', '.txt'],
     'Images': ['.jpg', '.jpeg', '.png', '.gif'],
@@ -18,8 +20,11 @@ file_types = {
     'Spreadsheets': ['.xls', '.xlsx'],
     'Presentations': ['.ppt', '.pptx'],
     'Code': ['.cpp', '.java', '.c'],
-    'Others': []  # For uncategorized files
+    'Others': []  # Uncategorized files
 }
+
+# A dictionary to track file hashes for duplicates
+file_hashes = {}
 
 def calculate_hash(file_path):
     """Calculate the MD5 hash of a file."""
@@ -33,108 +38,92 @@ def calculate_hash(file_path):
         print(f"Error calculating hash for {file_path}: {e}")
         return None
 
-file_hashes = {}
-
 def organize_files(directory):
-    """Organize files in the given directory based on their types."""
+    """Organize files in the given directory."""
     try:
         if not os.path.exists(directory):
             print(f"Error: The directory '{directory}' does not exist.")
             return
         
-        print(f"Organizing files in directory: {directory}")
-        
-        # Create subdirectories for file categories
+        # Create folders for categories and logs
         for folder in file_types.keys():
-            folder_path = os.path.join(directory, folder)
-            os.makedirs(folder_path, exist_ok=True)
-        
+            os.makedirs(os.path.join(directory, folder), exist_ok=True)
+        cleanup_folder = os.path.join(directory, 'Clean_Up')
+        os.makedirs(cleanup_folder, exist_ok=True)
+
         for file in os.listdir(directory):
             file_path = os.path.join(directory, file)
             
-            # Skip subdirectories
-            if os.path.isdir(file_path):
-                print(f"Skipping directory: {file_path}")
+            # Skip directories
+            if os.path.isdir(file_path) or file.startswith('.'):
                 continue
             
             # Check for duplicate files
             file_hash = calculate_hash(file_path)
-            if file_hash is None:
-                continue  # Skip if hash couldn't be calculated
-            
-            if file_hash in file_hashes:
-                print(f"Duplicate detected: {file} and {file_hashes[file_hash]}")
+            if file_hash and file_hash in file_hashes:
+                print(f"Duplicate file skipped: {file}")
+                log_action(directory, f"Duplicate file skipped: {file}")
                 continue
-            else:
+            elif file_hash:
                 file_hashes[file_hash] = file
             
-            # Check for existing file in destination folder to avoid overwriting
+            # Categorize the file
             moved = False
             for folder, extensions in file_types.items():
-                if any(file.endswith(ext) for ext in extensions):
-                    folder_path = os.path.join(directory, folder)
-                    destination_path = os.path.join(folder_path, file)
-                    
-                    # Check if file already exists in destination folder
-                    if os.path.exists(destination_path):
-                        new_name = f"{os.path.splitext(file)[0]}_duplicate{os.path.splitext(file)[1]}"
-                        destination_path = os.path.join(folder_path, new_name)
-                        print(f"File with the same name exists. Renamed to: {new_name}")
-                    
-                    try:
-                        shutil.move(file_path, destination_path)
-                        print(f"Moved {file} to {folder_path}")
-                        with open(os.path.join(directory, 'logs.txt'), 'a') as log_file:
-                            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            log_file.write(f"[{timestamp}] Moved {file} to {folder_path}\n")
-                        moved = True
-                    except Exception as e:
-                        print(f"Failed to move {file}: {e}")
-                        with open(os.path.join(directory, 'errors.txt'), 'a') as error_file:
-                            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            error_file.write(f"[{timestamp}] Failed to move {file}: {str(e)}\n")
+                if any(file.lower().endswith(ext) for ext in extensions):
+                    destination_folder = os.path.join(directory, folder)
+                    move_file(file_path, destination_folder)
+                    moved = True
                     break
             
             # Move uncategorized files to 'Others'
             if not moved:
-                folder_path = os.path.join(directory, 'Others')
-                destination_path = os.path.join(folder_path, file)
-                
-                # Check if file exists in 'Others' folder
-                if os.path.exists(destination_path):
-                    new_name = f"{os.path.splitext(file)[0]}_duplicate{os.path.splitext(file)[1]}"
-                    destination_path = os.path.join(folder_path, new_name)
-                    print(f"File with the same name exists in 'Others'. Renamed to: {new_name}")
-                
-                try:
-                    shutil.move(file_path, destination_path)
-                    print(f"Moved {file} to 'Others'")
-                    with open(os.path.join(directory, 'logs.txt'), 'a') as log_file:
-                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        log_file.write(f"[{timestamp}] Moved {file} to 'Others'\n")
-                except Exception as e:
-                    print(f"Failed to move {file} to 'Others': {e}")
-                    with open(os.path.join(directory, 'errors.txt'), 'a') as error_file:
-                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        error_file.write(f"[{timestamp}] Failed to move {file} to 'Others': {str(e)}\n")
+                others_folder = os.path.join(directory, 'Others')
+                move_file(file_path, others_folder)
         
-        # Clean up empty folders
+        # Move empty folders to 'Clean_Up'
         for folder in file_types.keys():
             folder_path = os.path.join(directory, folder)
-            if not os.listdir(folder_path):  # Check if the folder is empty
-                try:
-                    shutil.move(folder_path, os.path.join(directory, 'Clean_Up', folder))
-                    print(f"Moved empty folder '{folder}' to 'Clean_Up'")
-                except Exception as e:
-                    print(f"Failed to move empty folder '{folder}': {e}")
+            if os.path.isdir(folder_path) and not os.listdir(folder_path):
+                shutil.move(folder_path, os.path.join(cleanup_folder, folder))
+                print(f"Moved empty folder '{folder}' to 'Clean_Up'")
+                log_action(directory, f"Moved empty folder '{folder}' to 'Clean_Up'")
 
-        print("Files have been organized successfully.")
+        print("File organization completed.")
 
     except Exception as e:
-        print(f"An error occurred: {e}")
-        with open(os.path.join(directory, 'errors.txt'), 'a') as error_file:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            error_file.write(f"[{timestamp}] Error: {str(e)}\n")
+        log_error(directory, f"General error: {str(e)}")
 
-# Run the file organizer
+def move_file(source, destination_folder):
+    """Move a file to a destination folder."""
+    os.makedirs(destination_folder, exist_ok=True)
+    destination_path = os.path.join(destination_folder, os.path.basename(source))
+    
+    # Handle duplicate names
+    if os.path.exists(destination_path):
+        base, ext = os.path.splitext(os.path.basename(source))
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        new_name = f"{base}_{timestamp}{ext}"
+        destination_path = os.path.join(destination_folder, new_name)
+        print(f"File already exists. Renaming to: {new_name}")
+    
+    try:
+        shutil.move(source, destination_path)
+        log_action(directory, f"Moved {source} to {destination_path}")
+    except Exception as e:
+        log_error(directory, f"Failed to move {source}: {str(e)}")
+
+def log_action(directory, message):
+    """Log an action to a file."""
+    with open(os.path.join(directory, 'logs.txt'), 'a') as log_file:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_file.write(f"[{timestamp}] {message}\n")
+
+def log_error(directory, message):
+    """Log an error to a file."""
+    with open(os.path.join(directory, 'errors.txt'), 'a') as error_file:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_file.write(f"[{timestamp}] {message}\n")
+
+# Run the organizer
 organize_files(directory)
